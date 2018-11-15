@@ -24,14 +24,14 @@ SNMP_VERSION='2c'
 show_help() {
 cat <<EOF
 
-Usage: $0 [-h] [-v] [-H <network prefix> | -U <network prefix> | -A <network prefix> ] [-F]
+Usage: $0 [-h] [-v] [-H <network> | -U <network> | -A <network> ] [-F]
 
-    -h                      Show this help and exit
-    -v                      Be verbose
-    -H <network prefix>     Generate CLAPI file for hosts in this network (hosts addition)
-    -U <network prefix>     Generate CLAPI file for hosts in this network (hosts update)
-    -F                      Add CLAPI for filesystems for every hosts
-    -A <network prefix>     Generate all. Equivalent to: -H <network> -F
+    -h               Show this help and exit
+    -v               Be verbose
+    -H <network>     Generate CLAPI file for hosts in this network (hosts addition)
+    -U <network>     Generate CLAPI file for hosts in this network (hosts update)
+    -F               Add CLAPI for filesystems for every hosts
+    -A <network>     Generate all. Equivalent to: -H <network> -F
 
 EOF
 }
@@ -51,7 +51,7 @@ get_templating() {
 }
 
 add_host() {
-    #~ echo "Scanning address $1…" >&2
+    echo "Scanning address $1…" >&2
     FQDN=$(getent hosts $1 |awk '{print $2}')
     [ "$FQDN" ] && {
         echo "Adding host $FQDN…" >&2
@@ -62,7 +62,7 @@ add_host() {
 }
 
 gen_hosts() {
-    for address in $1.{0..255}.{0..255}; do
+    for address in $(eval echo ${1//\*/{0..255\}}); do
         add_host $address &
     done
 }
