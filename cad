@@ -17,6 +17,9 @@ FILE_LOG='./cad.log'
 FILE_TMP="/tmp/cad-$$.tmp"
 VERBOSE='false'
 
+SNMP_COMMUNITY='public'
+SNMP_VERSION='2c'
+
 # Show help
 show_help() {
 cat <<EOF
@@ -33,6 +36,12 @@ Usage: $0 [-h] [-v] [-H <network prefix> | -U <network prefix> | -A <network pre
 EOF
 }
 
+SNMPGET="snmpget -v$SNMP_VERSION -c$SNMP_COMMUNITY"
+
+get_sysdescr() {
+    $SNMPGET -Oqv "$1" iso.3.6.1.2.1.1.1.0
+}
+
 get_templating() {
     while IFS='\n' read template; do
         while IFS=';' read regex htpls stpl; do
@@ -42,8 +51,14 @@ get_templating() {
 }
 
 add_host() {
+    #~ echo "Scanning address $1…" >&2
     FQDN=$(getent hosts $1 |awk '{print $2}')
-    [ "$FQDN" ] && echo "Adding host $FQDN…" >&2
+    [ "$FQDN" ] && {
+        echo "Adding host $FQDN…" >&2
+        SYSDESCR="$(get_sysdescr $1)"
+        HTPL="$(get_templating $SYSDESCR)"
+        echo $SYSDESCR $HTPL
+    }
 }
 
 gen_hosts() {
