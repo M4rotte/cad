@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+# Check if we have all that we need, else exit 99.
+TOOLS='snmpdf snmpget'
+for tool in $TOOLS; do
+    [ -x "$(which $tool)" ] || { echo -e "\n$tool not found. Exiting.\n"; exit 99; }
+done
+
+# Set some default parameters
+FS_WARNTHRESHOLD=5         # Warning threshold, free space in percent
+FS_CRITTHRESHOLD=3         # Critical threshold, free space in percent
+FS_MAXWARNTHRESHOLD=512    # Maximum threshold for warning, free space in MiB
+FS_MAXCRITTHRESHOLD=1024   # Maximum threshold for critical, free space in MiB
+
+FILE_TEMPLATING='./templating'
+FILE_LOG='./cad.log'
+FILE_TMP="/tmp/cad-$$.tmp"
+VERBOSE='false'
+
+# Show help
+show_help() {
+cat <<EOF
+
+Usage: $0 [-h] [-v] [-H <network prefix> | -U <network prefix> | -A <network prefix> ] [-F]
+
+    -h                      Show this help and exit
+    -v                      Be verbose
+    -H <network prefix>     Generate CLAPI file for hosts in this network (hosts addition)
+    -U <network prefix>     Generate CLAPI file for hosts in this network (hosts update)
+    -F                      Add CLAPI for filesystems for every hosts
+    -A <network prefix>     Generate all. Equivalent to: -H <network> -F
+
+EOF
+}
+
+get_templating() {
+    while IFS='\n' read template; do
+        while IFS=';' read regex htpls stpl; do
+            [[ "$1" =~ $regex ]] && { echo $htpls $stpl; return 0; }
+        done < <(echo $template)
+    done < "$FILE_TEMPLATING"
+}
+
+add_host() {
+    FQDN=$(getent hosts $1 |awk '{print $2}')
+    [ "$FQDN" ] && echo "Adding host $FQDN…" >&2
+}
+
+gen_hosts() {
+    for address in $1.{0..255}.{0..255}; do
+        add_host $address &
+    done
+}
+
+while getopts "hvF:H:U:A:f:" opt; do
+    case $opt in
+        h)
+            show_help
+            exit 0
+        ;;
+        v)
+            VERBOSE='true'
+        ;;
+        F)
+            gen_filesystems "$OPTARG"
+        ;;
+        H)
+            gen_hosts "$OPTARG"
+        ;;
+        U)
+            up_hosts "$OPTARG"
+        ;;
+        A)
+            gen_hosts "$OPTARG"
+            gen_filesystems "$OPTARG"
+        ;;
+        f)
+            FILE_TEMPLATING="$OPTARG"
+        ;;
+    esac
+done
+
+# Check if templating file exists, if not then exit 98
+[ -f "$FILE_TEMPLATING" ] || { echo -e "$FILE_TEMPLATING not found. Exiting.\n"; exit 98; }
+
+$VERBOSE && echo "VERBOSE=$VERBOSE" >&2
+
+
+
+
+
+rm "$FILE_TMP"
+exit 0
