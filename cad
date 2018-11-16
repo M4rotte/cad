@@ -15,7 +15,7 @@ FS_MAXCRITTHRESHOLD=1024   # Maximum threshold for critical, free space in MiB
 FILE_TEMPLATING='./templating'
 FILE_LOG='./cad.log'
 FILE_TMP="/tmp/cad-$$.tmp"
-DIR_TMP='/tmp/cad'
+DIR_TMP='/tmp/cad-$$'
 VERBOSE='false'
 
 SNMP_COMMUNITY='public'
