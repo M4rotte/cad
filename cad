@@ -27,12 +27,11 @@ POLLER_NAME='Poller1'
 show_help() {
 cat <<EOF
 
-Usage: $0 [-h] [-v] [-H <network> | -U <network> | -A <network> ] [-F]
+Usage: $0 [-h] [-v] [-H <network>] [-F]
 
     -h               Show this help and exit
     -v               Be verbose
     -H <network>     Generate CLAPI file for hosts in this network (hosts addition)
-    -U <network>     Generate CLAPI file for hosts in this network (hosts update)
     -F               Add CLAPI for filesystems for every hosts
     -A <network>     Generate all. Equivalent to: -H <network> -F
 
@@ -81,9 +80,16 @@ gen_hosts() {
     done
 }
 
+gen_filesystems() {
+    echo "Plop"
+}
+
 [ -d "$DIR_TMP" ] || mkdir "$DIR_TMP"
 
-while getopts "hvF:H:U:A:f:p:" opt; do
+GEN_HOSTS='false'
+GEN_FS='false'
+
+while getopts "hvFH:U:A:f:p:" opt; do
     case $opt in
         h)
             show_help
@@ -92,35 +98,37 @@ while getopts "hvF:H:U:A:f:p:" opt; do
         v)
             VERBOSE='true'
         ;;
-        F)
-            gen_filesystems "$OPTARG"
-        ;;
-        H)
-            gen_hosts "$OPTARG"
-            wait
-            cat "${DIR_TMP}"/*
-        ;;
-        U)
-            up_hosts "$OPTARG"
-        ;;
-        A)
-            gen_hosts "$OPTARG"
-            gen_filesystems "$OPTARG"
-        ;;
         f)
             FILE_TEMPLATING="$OPTARG"
         ;;
         p)
             POLLER_NAME="$OPTARG"
         ;;
+        F)
+            GEN_FS='true'
+        ;;
+        H)
+            GEN_HOSTS='true'
+            ARGS="$OPTARG"
+        ;;
+        A)
+            GEN_HOSTS='true'
+            GEN_FS='true'
+            ARGS="$OPTARG"
+        ;;
     esac
 done
 
-# Check if templating file exists, if not then exit 98
-[ -f "$FILE_TEMPLATING" ] || { echo -e "$FILE_TEMPLATING not found. Exiting.\n"; exit 98; }
-
 $VERBOSE && echo "VERBOSE=$VERBOSE" >&2
 
+[ -f "$FILE_TEMPLATING" ] || { echo -e "File \"$FILE_TEMPLATING\" not found. Exiting.\n"; exit 98; }
+[ "$GEN_FS" = 'true' -a "$GEN_HOSTS" = 'false' ] && { echo -e "\nOption -H is mandatory when using the -F option.\n"; show_help; exit 97; }
+
+$GEN_HOSTS && gen_hosts $ARGS
+wait
+$GEN_FS && gen_filesystems $ARGS
+wait
+cat "${DIR_TMP}"/*
 
 
 [ -d "$DIR_TMP" ]  && rm -rf  "$DIR_TMP"
