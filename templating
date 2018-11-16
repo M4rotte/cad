@@ -1,0 +1,19 @@
+# Templating rules for Centreon Automatic Discovery
+# It’a CSV file which uses `;` as separator, values are unquoted. Empty lines and lines starting with `#` are ignored.
+# Fields are: <regex>;<host template(s)><host group(s)>;<service template for filesystems>
+# Only the first matching row will be used to create the host. So order matters, you should order the rules starting with the most specific.
+
+# Windows hosts
+.*Windows.*;TH_SYS_WINDOWS;HG_TECH_WINDOWS;TS_SYS_WINDOWS_FS_FREE
+
+# GNU/Linux hosts
+# You can set more than one host template using `|` as separator (like you’d do if using Centreon CLAPI directly).
+.*Linux.*;TH_SYS_LINUX|TH_SYS_POSIX;HG_TECH_LINUX;TS_SYS_LINUX_FS_FREE
+
+# Unix hosts
+.*A(ix|IX).*;TH_SYS_UNIX_AIX;HG_TECH_UNIX;TS_SYS_UNIX_FS_FREE
+
+# This line should be the latest, as regex `.*` match anything.
+.*;TH_SYS_HOST-ONLY
+
+
