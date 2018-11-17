@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Check if we have all that we need, else exit 99.
-TOOLS='snmpdf snmpget ping awk getent tr basename'
+TOOLS='snmpdf snmpget ping awk getent tr basename bc'
 for tool in $TOOLS; do
     [ -x "$(which $tool)" ] || { echo -e "\n$tool not found. Exiting.\n"; exit 99; }
 done
@@ -11,6 +11,7 @@ FS_WARNTHRESHOLD=5         # Warning threshold, free space in percent
 FS_CRITTHRESHOLD=3         # Critical threshold, free space in percent
 FS_MAXWARNTHRESHOLD=512    # Maximum threshold for warning, free space in MiB
 FS_MAXCRITTHRESHOLD=1024   # Maximum threshold for critical, free space in MiB
+FS_EXCLUSIONS='^/dev/? ^/proc ^/sys/? ^/run/?' # FS Exclusions
 
 FILE_TEMPLATING='./templating'
 FILE_LOG='./cad.log'
@@ -29,32 +30,71 @@ cat <<EOF
 
 Usage: $0 [-h] [-v] [-H <network>] [-F] [-c <SNMP community>]
 
-    -h               Show this help and exit
-    -v               Be verbose
-    -H <network>     Generate CLAPI file for hosts in this network (hosts addition)
-    -U <network>     Generate CLAPI file for hosts in this network (hosts update)
-    -F               Add CLAPI for filesystems for every hosts
-    -A <network>     Generate all. Equivalent to: -H <network> -F
-    -c <community>   SNMP Community. Used for SNMP requests and enforced on created hosts
+    -h                 Show this help and exit
+    -v                 Be verbose
+    -H <network>       Generate CLAPI file for hosts in this network (hosts addition)
+    -U <network>       Generate CLAPI file for hosts in this network (hosts update)
+    -F                 Add CLAPI for filesystems for every hosts
+    -A <network>       Generate all. Equivalent to: -H <network> -F
+    -c <community>     SNMP Community. Used for SNMP requests and enforced on created hosts
+    -p <poller name>   The name of the poller which the created/updated hosts will be linked
+    -W <percent>       The warning threshold in percent free (will be converted to kB free according to FS size and capped to $FS_MAXWARNTHRESHOLD*1024 (you can use -t option to change this maximum)
+    -C <percent>       The critical threshold in percent free (will be converted to kB free according to FS size and capped to $FS_MAXCRITTHRESHOLD*1024 (you can use -T option to change this maximum)
+    -t <percent>       Max warning threshold in MB free
+    -T <percent>       Max critical threshold in MB free
+
+    NB: This script doesn’t handle mountpoints with a space in their name. Could lead to strange (and falsy) behaviour.
 
 EOF
 }
 
 SNMPGET="snmpget -v$SNMP_VERSION -c$SNMP_COMMUNITY"
+SNMPDF="snmpdf -v$SNMP_VERSION -c$SNMP_COMMUNITY"
 
 get_sysdescr() {
     $SNMPGET -Oqv "$1" 1.3.6.1.2.1.1.1.0 2>/dev/null | tr -d '"'
 }
 
+get_filesystems() {
+    # Sed expressions needed to support FreeBSD, which give extra-info on mountpoints (type & dev), we need this transformations to discard those info later.
+    $SNMPDF "$1" | grep -E '^/'| sed -e 's/, /,/mg' -e 's/: /:/mg' 
+}
+
 get_fqdn() {
-    getent hosts $1 |awk '{print $2}'
+    getent hosts $1 |awk '{print $2}' 
+}
+
+clapi_add_fs() {
+    for re in $FS_EXCLUSIONS; do
+        [[ "$2" =~ $re ]] && {
+                $VERBOSE && echo "Excluding FS \"$2\" for host $FQDN" >&2
+                return 0
+            }
+    done
+    echo "SERVICE:ADD:$1:Filesystem $2:$FSTPL" >> "${DIR_TMP}/${FQDN}.clapi"
+    wthres=$(echo "$3 * $FS_WARNTHRESHOLD / 100" | bc)
+    [ $wthres -gt $(($FS_MAXWARNTHRESHOLD * 1024)) ] && wthres=$(($FS_MAXWARNTHRESHOLD * 1024))
+    cthres=$(echo "$3 * $FS_CRITTHRESHOLD / 100" | bc)
+    [ $cthres -gt $(($FS_MAXCRITTHRESHOLD * 1024)) ] && cthres=$(($FS_MAXCRITTHRESHOLD * 1024))
+    echo "SERVICE:setparam:Filesystem $2:check_command_arguments:!$2!$wthres!$cthres" >> "${DIR_TMP}/${FQDN}.clapi"
+}
+
+gen_filesystems() {
+    while IFS='\n' read fs; do
+        while read mp size used free; do
+            mp=${mp%%,*} # Discard FReeBSD extra-info
+            free=${free%% *} # Discard unused info (% free)
+            $VERBOSE && echo "$FQDN:$FSTPL:$mp|$size|$used|$free"
+            clapi_add_fs $FQDN $mp $size $used $free
+        done < <(echo "$fs")
+    done < <(echo "$(get_filesystems $1)")
 }
 
 get_templating() {
     while IFS='\n' read template; do
         while IFS=';' read regex htpls hgs stpl; do
             [[ "$1" =~ $regex ]] && { echo $htpls $hgs $stpl; return 0; }
-        done < <(echo $template)
+        done < <(echo "$template")
     done < <(grep -vE '^$|^\s*#' "$FILE_TEMPLATING")
 }
 
@@ -73,10 +113,12 @@ clapi_up_host() {
 
 read_templating() {
     SYSDESCR="$(get_sysdescr $1)"
-    templating="$(get_templating $SYSDESCR)"
-    read HTPL HG < <(echo $templating)
+    $VERBOSE && echo "$FQDN: Description=$SYSDESCR" >&2
+    templating="$(get_templating "$SYSDESCR")"
+    read HTPL HG FSTPL < <(echo "$templating")
     $VERBOSE && echo "Template(s) for $FQDN: $HTPL" >&2
     $VERBOSE && echo "Group(s) for $FQDN: $HG" >&2
+    $VERBOSE && echo "FS template for $FQDN: $FSTPL" >&2
 }
 
 add_host() {
@@ -86,6 +128,7 @@ add_host() {
         echo "Adding host $FQDN…" >&2
         read_templating $1
         clapi_add_host $1 $FQDN $HTPL $HG > "${DIR_TMP}/${FQDN}.clapi"
+        [ $FSTPL ] && $GEN_FS && gen_filesystems $FQDN $FSTPL || { $VERBOSE && echo "Host $FQDN has no FS service template associated…" >&2; }
     }
 }
 
@@ -96,6 +139,7 @@ up_host() {
         echo "Updating host $FQDN…" >&2
         read_templating $1
         clapi_up_host $1 $FQDN $HTPL $HG > "${DIR_TMP}/${FQDN}.clapi"
+        [ $FSTPL ] && $GEN_FS && gen_filesystems $FQDN $FSTPL
     }
 }
 
@@ -111,14 +155,6 @@ up_hosts() {
     done
 }
 
-gen_filesystems() {
-    ls "$DIR_TMP"/* &>/dev/null || { echo "No host to create filesystems for. Use one of -H or -U option.";  return 0; }
-    for file in "${DIR_TMP}"/*; do
-    bn=$(basename $file)
-    hn=${bn%.*}
-    snmpdf -c$SNMP_COMMUNITY -v$SNMP_VERSION $hn | grep -E '^/'
-    done
-}
 
 [ -d "$DIR_TMP" ] || mkdir "$DIR_TMP"
 
@@ -126,7 +162,7 @@ GEN_HOSTS='false'
 UP_HOSTS='false'
 GEN_FS='false'
 
-while getopts "hvFH:U:A:f:p:" opt; do
+while getopts "hvFH:U:A:f:p:W:C:t:T:" opt; do
     case $opt in
         h)
             show_help
@@ -134,6 +170,18 @@ while getopts "hvFH:U:A:f:p:" opt; do
         ;;
         v)
             VERBOSE='true'
+        ;;
+        W)
+            FS_WARNTHRESHOLD="$OPTARG"
+        ;;
+        C)
+            FS_CRITTHRESHOLD="$OPTARG"
+        ;;
+        t)
+            FS_MAXWARNTHRESHOLD="$OPTARG"
+        ;;
+        T)
+            FS_MAXCRITTHRESHOLD="$OPTARG"
         ;;
         f)
             FILE_TEMPLATING="$OPTARG"
@@ -161,6 +209,7 @@ while getopts "hvFH:U:A:f:p:" opt; do
 done
 
 $VERBOSE && echo "VERBOSE=$VERBOSE" >&2
+$VERBOSE && echo "GEN_FS=$GEN_FS" >&2
 
 [ -f "$FILE_TEMPLATING" ] || { echo -e "File \"$FILE_TEMPLATING\" not found. Exiting.\n"; exit 98; }
 
@@ -170,8 +219,7 @@ elif $UP_HOSTS; then
     up_hosts $ARGS
 fi
 wait
-$GEN_FS && gen_filesystems $ARGS
-wait
+
 cat "${DIR_TMP}"/* 2>/dev/null
 
 
