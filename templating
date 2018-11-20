@@ -15,7 +15,7 @@
 .*FreeBSD.*;TH_SYS_FREEBSD;HG_TECH_UNIX;TS_SYS_UNIX_FS_FREE
 
 # Unix hosts
-.*A(ix|IX).*;TH_SYS_UNIX_AIX;HG_TECH_UNIX_AIX;TS_SYS_UNIX_FS_FREE
+.*A(ix|IX).*;TH_SYS_UNIX_AIX;HG_TECH_UNIX_AIX;TS_APP_[NOM-APPLI]_AIX_FILESYSTEM_[NOM-FS]_USED
 
 # This line should be the latest, as regex `.*` match anything.
 .*;TH_SYS_HOST-ONLY
