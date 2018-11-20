@@ -11,7 +11,7 @@ FS_WARNTHRESHOLD=5         # Warning threshold, free space in percent
 FS_CRITTHRESHOLD=3         # Critical threshold, free space in percent
 FS_MAXWARNTHRESHOLD=512    # Maximum threshold for warning, free space in MiB
 FS_MAXCRITTHRESHOLD=1024   # Maximum threshold for critical, free space in MiB
-FS_EXCLUSIONS='^/dev/? ^/proc ^/sys/? ^/run/?' # FS Exclusions
+FS_EXCLUSIONS='^/proc ^/sys/? ^/run/?' # FS Exclusions
 
 FILE_TEMPLATING='./templating'
 FILE_LOG='./cad.log'
@@ -19,8 +19,8 @@ FILE_TMP="/tmp/cad-$$.tmp"
 DIR_TMP="/tmp/cad-$$"
 VERBOSE='false'
 
-SNMP_COMMUNITY='public'
-SNMP_VERSION='2c'
+CAD_SNMP_COMMUNITY='public'
+CAD_SNMP_VERSION='1'
 
 POLLER_NAME='Poller1'
 
@@ -48,8 +48,9 @@ Usage: $0 [-h] [-v] [-H <network>] [-F] [-c <SNMP community>]
 EOF
 }
 
-SNMPGET="snmpget -v$SNMP_VERSION -c$SNMP_COMMUNITY"
-SNMPDF="snmpdf -v$SNMP_VERSION -c$SNMP_COMMUNITY"
+SNMPGET="snmpget -v$CAD_SNMP_VERSION -c$CAD_SNMP_COMMUNITY"
+SNMPDF="snmpdf -v$CAD_SNMP_VERSION -c$CAD_SNMP_COMMUNITY"
+SNMPDF_WIN="snmpdf -v$CAD_SNMP_VERSION -c$CAD_SNMP_COMMUNITY"
 
 get_sysdescr() {
     $SNMPGET -Oqv "$1" 1.3.6.1.2.1.1.1.0 2>/dev/null | tr -d '"'
@@ -57,7 +58,11 @@ get_sysdescr() {
 
 get_filesystems() {
     # Sed expressions needed to support FreeBSD, which give extra-info on mountpoints (type & dev), we need this transformations to discard those info later.
-    $SNMPDF "$1" | grep -E '^/'| sed -e 's/, /,/mg' -e 's/: /:/mg' 
+    $SNMPDF -t10 "$1" | grep -E '^/' | sed -e 's/, /,/mg' -e 's/: /:/mg' 
+}
+
+get_filesystems_win() {
+    $SNMPDF_WIN -t10 "$1" | grep ':' | awk -F' ' '{print $1 " " $6 " " $7 " " $8}' | sed -e 's/://mg' -e 's/\\//mg'
 }
 
 get_fqdn() {
@@ -73,10 +78,12 @@ clapi_add_fs() {
     done
     echo "SERVICE:ADD:$1:Filesystem $2:$FSTPL" >> "${DIR_TMP}/${FQDN}.clapi"
     wthres=$(echo "$3 * $FS_WARNTHRESHOLD / 100" | bc)
-    [ $wthres -gt $(($FS_MAXWARNTHRESHOLD * 1024)) ] && wthres=$(($FS_MAXWARNTHRESHOLD * 1024))
     cthres=$(echo "$3 * $FS_CRITTHRESHOLD / 100" | bc)
-    [ $cthres -gt $(($FS_MAXCRITTHRESHOLD * 1024)) ] && cthres=$(($FS_MAXCRITTHRESHOLD * 1024))
-    echo "SERVICE:setparam:Filesystem $2:check_command_arguments:!$2!$wthres!$cthres" >> "${DIR_TMP}/${FQDN}.clapi"
+    [ -z "$wthres" -o -z "$cthres" ] || {
+        [ $wthres -gt $(($FS_MAXWARNTHRESHOLD * 1024)) ] && wthres=$(($FS_MAXWARNTHRESHOLD * 1024))
+        [ $cthres -gt $(($FS_MAXCRITTHRESHOLD * 1024)) ] && cthres=$(($FS_MAXCRITTHRESHOLD * 1024))
+        echo "SERVICE:setparam:Filesystem $2:check_command_arguments:!$2!$wthres!$cthres" >> "${DIR_TMP}/${FQDN}.clapi"
+    }
 }
 
 gen_filesystems() {
@@ -90,6 +97,16 @@ gen_filesystems() {
     done < <(echo "$(get_filesystems $1)")
 }
 
+gen_filesystems_win() {
+    while IFS='\n' read fs; do
+        while read mp size used free; do
+            free=${free%% *} # Discard unused info (% free)
+            $VERBOSE && echo "$FQDN:$FSTPL:$mp|$size|$used|$free"
+            clapi_add_fs $FQDN $mp $size $used $free
+        done < <(echo "$fs")
+    done < <(echo "$(get_filesystems_win $1)")
+}
+
 get_templating() {
     while IFS='\n' read template; do
         while IFS=';' read regex htpls hgs stpl; do
@@ -100,12 +117,12 @@ get_templating() {
 
 clapi_add_host() {
     echo "HOST:ADD:$2:$2:$1:$3:$POLLER_NAME:$4"
-    echo "HOST:setparam:$2:snmp_community:$SNMP_COMMUNITY"
+    echo "HOST:setparam:$2:snmp_community:$CAD_SNMP_COMMUNITY"
 }
 
 clapi_up_host() {
     echo "HOST:setparam:$2:address:$1"
-    echo "HOST:setparam:$2:snmp_community:$SNMP_COMMUNITY"
+    echo "HOST:setparam:$2:snmp_community:$CAD_SNMP_COMMUNITY"
     echo "HOST:sethostgroup:$2:$4"
     echo "HOST:settemplate:$2:$3"
 }
@@ -123,12 +140,13 @@ read_templating() {
 
 add_host() {
     $VERBOSE && echo "Scanning address $1…" >&2
-    ping -4 -n -c1 $1 &>/dev/null && FQDN=$(get_fqdn $1) || { $VERBOSE && echo "Address $1 is down…" >&2; }
+    ping -n -c1 $1 &>/dev/null && FQDN=$(get_fqdn $1) || { $VERBOSE && echo "Address $1 is down…" >&2; }
     [ "$FQDN" ] && {
         echo "Adding host $FQDN…" >&2
         read_templating $1
         clapi_add_host $1 $FQDN $HTPL $HG > "${DIR_TMP}/${FQDN}.clapi"
-        [ $FSTPL ] && $GEN_FS && gen_filesystems $FQDN $FSTPL || { $VERBOSE && echo "Host $FQDN has no FS service template associated…" >&2; }
+        [[ ! $SYSDESCR =~ .*Windows.* ]] && [ $FSTPL ] && $GEN_FS && gen_filesystems $FQDN $FSTPL || { $VERBOSE && echo "Host $FQDN has no FS service template associated…" >&2; }
+        [ $FSTPL ] && $GEN_FS && gen_filesystems_win $FQDN $FSTPL || { $VERBOSE && echo "Host $FQDN has no FS service template associated…" >&2; }
     }
 }
 
@@ -145,13 +163,13 @@ up_host() {
 
 gen_hosts() {
     for address in $(eval echo ${1//\*/{0..255\}}); do
-        add_host $address &
+        add_host $address
     done
 }
 
 up_hosts() {
     for address in $(eval echo ${1//\*/{0..255\}}); do
-        up_host $address &
+        up_host $address
     done
 }
 
@@ -162,7 +180,7 @@ GEN_HOSTS='false'
 UP_HOSTS='false'
 GEN_FS='false'
 
-while getopts "hvFH:U:A:f:p:W:C:t:T:" opt; do
+while getopts "hvFH:U:A:f:p:W:C:t:T:c:" opt; do
     case $opt in
         h)
             show_help
@@ -171,6 +189,9 @@ while getopts "hvFH:U:A:f:p:W:C:t:T:" opt; do
         v)
             VERBOSE='true'
         ;;
+        c)
+            CAD_SNMP_COMMUNITY="$OPTARG"
+        ;;    
         W)
             FS_WARNTHRESHOLD="$OPTARG"
         ;;
@@ -210,14 +231,17 @@ done
 
 $VERBOSE && echo "VERBOSE=$VERBOSE" >&2
 $VERBOSE && echo "GEN_FS=$GEN_FS" >&2
+$VERBOSE && echo "SNMP Community=$CAD_SNMP_COMMUNITY" >&2
+$VERBOSE && echo "SNMP Version=$CAD_SNMP_VERSION" >&2
 
 [ -f "$FILE_TEMPLATING" ] || { echo -e "File \"$FILE_TEMPLATING\" not found. Exiting.\n"; exit 98; }
 
 if $GEN_HOSTS; then
-    gen_hosts $ARGS
+    `gen_hosts $ARGS`
 elif $UP_HOSTS; then
-    up_hosts $ARGS
+    `up_hosts $ARGS`
 fi
+
 wait
 
 cat "${DIR_TMP}"/* 2>/dev/null
