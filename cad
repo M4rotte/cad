@@ -84,7 +84,7 @@ gen_filesystems() {
         while read mp size used free; do
             mp=${mp%%,*} # Discard FReeBSD extra-info
             free=${free%% *} # Discard unused info (% free)
-            $VERBOSE && echo "$FQDN:$FSTPL:$mp|$size|$used|$free"
+            $VERBOSE && echo "$FQDN:$FSTPL:$mp|$size|$used|$free" >&2
             clapi_add_fs $FQDN $mp $size $used $free
         done < <(echo "$fs")
     done < <(echo "$(get_filesystems $1)")
@@ -162,7 +162,7 @@ GEN_HOSTS='false'
 UP_HOSTS='false'
 GEN_FS='false'
 
-while getopts "hvFH:U:A:f:p:W:C:t:T:" opt; do
+while getopts "hvFH:U:c:A:f:p:W:C:t:T:" opt; do
     case $opt in
         h)
             show_help
@@ -185,6 +185,9 @@ while getopts "hvFH:U:A:f:p:W:C:t:T:" opt; do
         ;;
         f)
             FILE_TEMPLATING="$OPTARG"
+        ;;
+        c)
+            SNMP_COMMUNITY="$OPTARG"
         ;;
         p)
             POLLER_NAME="$OPTARG"
