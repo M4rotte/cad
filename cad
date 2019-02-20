@@ -48,9 +48,6 @@ Usage: $0 [-h] [-v] [-H <network>] [-F] [-c <SNMP community>]
 EOF
 }
 
-SNMPGET="snmpget -v$SNMP_VERSION -c$SNMP_COMMUNITY"
-SNMPDF="snmpdf -v$SNMP_VERSION -c$SNMP_COMMUNITY"
-
 get_sysdescr() {
     $SNMPGET -Oqv "$1" 1.3.6.1.2.1.1.1.0 2>/dev/null | tr -d '"'
 }
@@ -123,7 +120,7 @@ read_templating() {
 
 add_host() {
     $VERBOSE && echo "Scanning address $1…" >&2
-    ping -4 -n -c1 $1 &>/dev/null && FQDN=$(get_fqdn $1) || { $VERBOSE && echo "Address $1 is down…" >&2; }
+    ping -n -c1 $1 &>/dev/null && FQDN=$(get_fqdn $1) || { $VERBOSE && echo "Address $1 is down…" >&2; }
     [ "$FQDN" ] && {
         echo "Adding host $FQDN…" >&2
         read_templating $1
@@ -134,7 +131,7 @@ add_host() {
 
 up_host() {
     $VERBOSE && echo "Scanning address $1…" >&2
-    ping -4 -n -c1 $1 &>/dev/null && FQDN=$(get_fqdn $1) || { $VERBOSE && echo "Address $1 is down…" >&2; }
+    ping -n -c1 $1 &>/dev/null && FQDN=$(get_fqdn $1) || { $VERBOSE && echo "Address $1 is down…" >&2; }
     [ "$FQDN" ] && {
         echo "Updating host $FQDN…" >&2
         read_templating $1
@@ -213,8 +210,13 @@ done
 
 $VERBOSE && echo "VERBOSE=$VERBOSE" >&2
 $VERBOSE && echo "GEN_FS=$GEN_FS" >&2
+$VERBOSE && echo "POLLER_NAME=$POLLER_NAME" >&2
+$VERBOSE && echo "SNMP_COMMUNITY=$SNMP_COMMUNITY" >&2
 
 [ -f "$FILE_TEMPLATING" ] || { echo -e "File \"$FILE_TEMPLATING\" not found. Exiting.\n"; exit 98; }
+
+SNMPGET="snmpget -v$SNMP_VERSION -c$SNMP_COMMUNITY"
+SNMPDF="snmpdf -v$SNMP_VERSION -c$SNMP_COMMUNITY"
 
 if $GEN_HOSTS; then
     gen_hosts $ARGS
