@@ -1,0 +1,1 @@
+Use snmpget and an OID which is common between all operating systems, instead of snmpdf, which returns the device name instead of the mountpoint on AIX.

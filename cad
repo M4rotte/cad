@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -x
-
 # Check if we have all that we need, else exit 99.
 TOOLS='snmpdf snmpget ping awk getent tr basename bc'
 for tool in $TOOLS; do
@@ -16,7 +14,7 @@ FS_MAXCRITTHRESHOLD=1024   # Maximum threshold for critical, free space in MiB
 FS_EXCLUSIONS='^/dev/? ^/proc ^/sys/? ^/run/?' # FS Exclusions
 
 FILE_TEMPLATING='./templating'
-FILE_LOG='./cad.log'
+FILE_LOG='./cad.log' # Unused so far
 FILE_TMP="/tmp/cad-$$.tmp"
 DIR_TMP="/tmp/cad-$$"
 VERBOSE='false'
@@ -30,7 +28,7 @@ POLLER_NAME='Poller1'
 show_help() {
 cat <<EOF
 
-Usage: $0 [-h] [-v] [-H <network>] [-F] [-c <SNMP community>]
+Usage: $0 [-h] [-v] [-H|-A|-U <network>] [-F] [-c <SNMP community>] [-p <poller name>] [-W <warning threshold>] [-C <critical threshold>] [-t <max warning threshold>] [-T <max critical threshold>] [-X <regex list>]
 
     -h                 Show this help and exit
     -v                 Be verbose
@@ -46,7 +44,7 @@ Usage: $0 [-h] [-v] [-H <network>] [-F] [-c <SNMP community>]
     -T <percent>       Max critical threshold in MB free
     -X <regex list>    List of space separated regex. Default is '^/dev/? ^/proc ^/sys/? ^/run/?'
 
-    NB: This script doesn’t handle mountpoints with a space in their name. Could lead to strange (and falsy) behaviour. For AIX hosts, this is not the mount point but the device name that is returned. It has to be considered when choosing the right FS template to use for this kind of host.
+    This script does NOT handle mountpoints with a space in their name. It could lead to strange (and falsy) behaviour. For AIX hosts, this is not the mount point, but the device name, that is returned. It has to be taken into account when choosing the right FS template to use for this kind of host. Also, as the default FS exclusions contains the regex '^/dev/?', all AIX FS are excluded (the device name being something like "/dev/…") unless you use the -X option to overload the exclusion patterns.
 
 EOF
 }
