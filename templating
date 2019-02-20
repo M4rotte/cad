@@ -1,8 +1,8 @@
 # Templating rules for Centreon Automatic Discovery
 # It’a CSV file which uses `;` as separator, values are unquoted. Empty lines and lines starting with `#` are ignored.
-# Fields are: <regex>;<host template(s)><host group(s)>;<service template for filesystems>
+# Fields are: <regex>;<host template(s)>;<host group(s)>;<service template for filesystems>
 # Only the first matching row will be used to create the host. So order matters, you should order the rules starting with the most specific regex.
-# The service template for filesystems must take 3 arguments: mount point, warn threshold in kB free, crit threshold in kB free
+# The service template for filesystems must take 3 arguments: mount point, warn threshold in kiB free, crit threshold in kiB free
 
 # Windows hosts
 .*Windows.*;TH_SYS_WINDOWS;HG_TECH_WINDOWS;TS_SYS_WINDOWS_FS_FREE

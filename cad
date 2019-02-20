@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Check if we have all that we need, else exit 99.
-TOOLS='snmpdf snmpget ping awk getent tr basename bc'
+TOOLS='snmpdf snmpget ping awk getent tr basename bc /usr/lib/nagios/plugins/check_snmp_process.pl'
 for tool in $TOOLS; do
     [ -x "$(which $tool)" ] || { echo -e "\n$tool not found. Exiting.\n"; exit 99; }
 done
@@ -14,6 +14,7 @@ FS_MAXCRITTHRESHOLD=1024   # Maximum threshold for critical, free space in MiB
 FS_EXCLUSIONS='^/dev/? ^/proc ^/sys/? ^/run/?' # FS Exclusions
 
 FILE_TEMPLATING='./templating'
+FILE_PROC_TEMPLATING='./processes-templating'
 FILE_LOG='./cad.log' # Unused so far
 FILE_TMP="/tmp/cad-$$.tmp"
 DIR_TMP="/tmp/cad-$$"
@@ -32,12 +33,13 @@ Usage: $0 [-h] [-v] [-H|-A|-U <network>] [-F] [-c <SNMP community>] [-p <poller 
 
     -h                 Show this help and exit
     -v                 Be verbose
-    -H <network>       Generate CLAPI file for hosts in this network (hosts addition)
-    -U <network>       Generate CLAPI file for hosts in this network (hosts update)
-    -F                 Add CLAPI for filesystems for every hosts
+    -H <network>       Generate CLAPI code for hosts in this network (hosts addition)
+    -U <network>       Generate CLAPI code for hosts in this network (hosts update)
+    -F                 Generate CLAPI code for filesystems for every hosts
+    -P                 Generate CLAPI code for applicative host templates for every hosts
     -A <network>       Generate all. Equivalent to: -H <network> -F
     -c <community>     SNMP Community. Used for SNMP requests and enforced on created hosts
-    -p <poller name>   The name of the poller which the created/updated hosts will be linked
+    -p <poller name>   The name of the poller to which the created/updated hosts will be linked
     -W <percent>       The warning threshold in percent free (will be converted to kB free according to FS size and capped to $FS_MAXWARNTHRESHOLD*1024 (you can use -t option to change this maximum)
     -C <percent>       The critical threshold in percent free (will be converted to kB free according to FS size and capped to $FS_MAXCRITTHRESHOLD*1024 (you can use -T option to change this maximum)
     -t <percent>       Max warning threshold in MB free
@@ -45,6 +47,8 @@ Usage: $0 [-h] [-v] [-H|-A|-U <network>] [-F] [-c <SNMP community>] [-p <poller 
     -X <regex list>    List of space separated regex. Default is '^/dev/? ^/proc ^/sys/? ^/run/?'
 
     This script does NOT handle mountpoints with a space in their name. It could lead to strange (and falsy) behaviour. For AIX hosts, this is not the mount point, but the device name, that is returned. It has to be taken into account when choosing the right FS template to use for this kind of host. Also, as the default FS exclusions contains the regex '^/dev/?', all AIX FS are excluded (the device name being something like "/dev/…") unless you use the -X option to overload the exclusion patterns.
+    
+    Template files filenames are hardcoded. “templating” contains settings for the host templating (Linux vs. AIX vs. Windows …) while “processes-templating” contains settings for applicative host templates (OpenSSH, MySQL, …). Examples are provided and some comments explain the required formatting for those files. 
 
 EOF
 }
@@ -109,7 +113,6 @@ clapi_up_host() {
     echo "HOST;settemplate;$2;$3"
 }
 
-
 read_templating() {
     SYSDESCR="$(get_sysdescr $1)"
     $VERBOSE && echo "$FQDN: Description=$SYSDESCR" >&2
@@ -120,6 +123,12 @@ read_templating() {
     $VERBOSE && echo "FS template for $FQDN: $FSTPL" >&2
 }
 
+gen_app_htpl() {
+    while IFS=';' read COMM HTPL HG; do
+        echo $COMM/$HTPL/$HG
+    done < <(grep -Ev '^$|^#' $FILE_PROC_TEMPLATING)
+}
+
 add_host() {
     $VERBOSE && echo "Scanning address $1…" >&2
     ping -n -c1 $1 &>/dev/null && FQDN=$(get_fqdn $1) || { $VERBOSE && echo "Address $1 is down…" >&2; }
@@ -128,6 +137,7 @@ add_host() {
         read_templating $1
         clapi_add_host $1 $FQDN $HTPL $HG > "${DIR_TMP}/${FQDN}.clapi"
         [ $FSTPL ] && $GEN_FS && gen_filesystems $FQDN $FSTPL || { $VERBOSE && echo "Host $FQDN has no FS service template associated…" >&2; }
+        $GEN_APP_HTPL && gen_app_htpl $FQDN
     }
 }
 
@@ -160,8 +170,9 @@ up_hosts() {
 GEN_HOSTS='false'
 UP_HOSTS='false'
 GEN_FS='false'
+GEN_APP_HTPL='false'
 
-while getopts "hvFH:U:c:A:f:p:W:C:t:T:X:" opt; do
+while getopts "hvFPH:U:c:A:f:p:W:C:t:T:X:" opt; do
     case $opt in
         h)
             show_help
@@ -191,6 +202,9 @@ while getopts "hvFH:U:c:A:f:p:W:C:t:T:X:" opt; do
         p)
             POLLER_NAME="$OPTARG"
         ;;
+        P)
+            GEN_APP_HTPL='true'
+        ;;
         F)
             GEN_FS='true'
         ;;
@@ -213,11 +227,12 @@ while getopts "hvFH:U:c:A:f:p:W:C:t:T:X:" opt; do
     esac
 done
 
-$VERBOSE && echo "VERBOSE=$VERBOSE" >&2
-$VERBOSE && echo "GEN_FS=$GEN_FS" >&2
-$VERBOSE && echo "POLLER_NAME=$POLLER_NAME" >&2
-$VERBOSE && echo "SNMP_COMMUNITY=$SNMP_COMMUNITY" >&2
-{ $VERBOSE && $GEN_FS ; } && echo "FS_EXCLUSIONS=$FS_EXCLUSIONS" >&2
+$VERBOSE && echo "VERBOSE        = $VERBOSE" >&2
+$VERBOSE && echo "GEN_FS         = $GEN_FS" >&2
+$VERBOSE && echo "GEN_APP_HTPL   = $GEN_APP_HTPL" >&2
+$VERBOSE && echo "POLLER_NAME    = $POLLER_NAME" >&2
+$VERBOSE && echo "SNMP_COMMUNITY = $SNMP_COMMUNITY" >&2
+{ $VERBOSE && $GEN_FS ; } && echo "FS_EXCLUSIONS  = $FS_EXCLUSIONS" >&2
 
 [ -f "$FILE_TEMPLATING" ] || { echo -e "File \"$FILE_TEMPLATING\" not found. Exiting.\n"; exit 98; }
 

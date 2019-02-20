@@ -1,0 +1,12 @@
+# Process templating rules for Centreon Automatic Discovery
+# It’a CSV file which uses `;` as separator, values are unquoted. Empty lines and lines starting with `#` are ignored.
+# Fields are: <command name>;<host template(s)>;<host group(s)>
+
+# MySQL/MariaDB sur Linux
+^mysqld$;TH_MID_MYSQL;HG_TECH_MYSQL|HG_DBA
+
+# OpenSSH server sur AIX
+^openssh.base.server .*$;TH_MID_OPENSSH
+
+# OpenSSH server sur Linux
+^sshd$;TH_MID_OPENSSH
