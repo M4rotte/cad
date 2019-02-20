@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -x
+
 # Check if we have all that we need, else exit 99.
 TOOLS='snmpdf snmpget ping awk getent tr basename bc'
 for tool in $TOOLS; do
@@ -42,8 +44,9 @@ Usage: $0 [-h] [-v] [-H <network>] [-F] [-c <SNMP community>]
     -C <percent>       The critical threshold in percent free (will be converted to kB free according to FS size and capped to $FS_MAXCRITTHRESHOLD*1024 (you can use -T option to change this maximum)
     -t <percent>       Max warning threshold in MB free
     -T <percent>       Max critical threshold in MB free
+    -X <regex list>    List of space separated regex. Default is '^/dev/? ^/proc ^/sys/? ^/run/?'
 
-    NB: This script doesn’t handle mountpoints with a space in their name. Could lead to strange (and falsy) behaviour.
+    NB: This script doesn’t handle mountpoints with a space in their name. Could lead to strange (and falsy) behaviour. For AIX hosts, this is not the mount point but the device name that is returned. It has to be considered when choosing the right FS template to use for this kind of host.
 
 EOF
 }
@@ -53,8 +56,9 @@ get_sysdescr() {
 }
 
 get_filesystems() {
-    # Sed expressions needed to support FreeBSD, which give extra-info on mountpoints (type & dev), we need this transformations to discard those info later.
-    $SNMPDF "$1" | grep -E '^/'| sed -e 's/, /,/mg' -e 's/: /:/mg' 
+    # First and second sed expressions needed to support FreeBSD, which give extra-info on mountpoints (type & dev), we need this transformations to discard those info later.
+    # Third sed expresion needed to support Windows which give extra-info (serial number). We just drop this serial so size is the second field, after the drive letter.
+    $SNMPDF "$1" | grep -E '^(/|[A-Z]:)' | sed -e 's/, /,/mg' -e 's/: /:/mg' -e 's/Label: Serial Number [1-9a-f]*//gm'
 }
 
 get_fqdn() {
@@ -159,7 +163,7 @@ GEN_HOSTS='false'
 UP_HOSTS='false'
 GEN_FS='false'
 
-while getopts "hvFH:U:c:A:f:p:W:C:t:T:" opt; do
+while getopts "hvFH:U:c:A:f:p:W:C:t:T:X:" opt; do
     case $opt in
         h)
             show_help
@@ -200,6 +204,9 @@ while getopts "hvFH:U:c:A:f:p:W:C:t:T:" opt; do
             UP_HOSTS='true'
             ARGS="$OPTARG"
         ;;
+        X)
+            FS_EXCLUSIONS="$OPTARG"
+        ;;
         A)
             GEN_HOSTS='true'
             GEN_FS='true'
@@ -212,6 +219,7 @@ $VERBOSE && echo "VERBOSE=$VERBOSE" >&2
 $VERBOSE && echo "GEN_FS=$GEN_FS" >&2
 $VERBOSE && echo "POLLER_NAME=$POLLER_NAME" >&2
 $VERBOSE && echo "SNMP_COMMUNITY=$SNMP_COMMUNITY" >&2
+{ $VERBOSE && $GEN_FS ; } && echo "FS_EXCLUSIONS=$FS_EXCLUSIONS" >&2
 
 [ -f "$FILE_TEMPLATING" ] || { echo -e "File \"$FILE_TEMPLATING\" not found. Exiting.\n"; exit 98; }
 
