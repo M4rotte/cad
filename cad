@@ -70,12 +70,12 @@ clapi_add_fs() {
                 return 0
             }
     done
-    echo "SERVICE:ADD:$1:Filesystem $2:$FSTPL" >> "${DIR_TMP}/${FQDN}.clapi"
+    echo "SERVICE;ADD;$1;Filesystem $2;$FSTPL" >> "${DIR_TMP}/${FQDN}.clapi"
     wthres=$(echo "$3 * $FS_WARNTHRESHOLD / 100" | bc)
     [ $wthres -gt $(($FS_MAXWARNTHRESHOLD * 1024)) ] && wthres=$(($FS_MAXWARNTHRESHOLD * 1024))
     cthres=$(echo "$3 * $FS_CRITTHRESHOLD / 100" | bc)
     [ $cthres -gt $(($FS_MAXCRITTHRESHOLD * 1024)) ] && cthres=$(($FS_MAXCRITTHRESHOLD * 1024))
-    echo "SERVICE:setparam:Filesystem $2:check_command_arguments:!$2!$wthres!$cthres" >> "${DIR_TMP}/${FQDN}.clapi"
+    echo "SERVICE;setparam;Filesystem $2;check_command_arguments;!$2!$wthres!$cthres" >> "${DIR_TMP}/${FQDN}.clapi"
 }
 
 gen_filesystems() {
@@ -83,7 +83,7 @@ gen_filesystems() {
         while read mp size used free; do
             mp=${mp%%,*} # Discard FReeBSD extra-info
             free=${free%% *} # Discard unused info (% free)
-            $VERBOSE && echo "$FQDN:$FSTPL:$mp|$size|$used|$free" >&2
+            $VERBOSE && echo "$FQDN;$FSTPL;$mp|$size|$used|$free" >&2
             clapi_add_fs $FQDN $mp $size $used $free
         done < <(echo "$fs")
     done < <(echo "$(get_filesystems $1)")
@@ -98,15 +98,15 @@ get_templating() {
 }
 
 clapi_add_host() {
-    echo "HOST:ADD:$2:$2:$1:$3:$POLLER_NAME:$4"
-    echo "HOST:setparam:$2:snmp_community:$SNMP_COMMUNITY"
+    echo "HOST;ADD;$2;$2;$1;$3;$POLLER_NAME;$4"
+    echo "HOST;setparam;$2;snmp_community;$SNMP_COMMUNITY"
 }
 
 clapi_up_host() {
-    echo "HOST:setparam:$2:address:$1"
-    echo "HOST:setparam:$2:snmp_community:$SNMP_COMMUNITY"
-    echo "HOST:sethostgroup:$2:$4"
-    echo "HOST:settemplate:$2:$3"
+    echo "HOST;setparam;$2;address;$1"
+    echo "HOST;setparam;$2;snmp_community;$SNMP_COMMUNITY"
+    echo "HOST;sethostgroup;$2;$4"
+    echo "HOST;settemplate;$2;$3"
 }
 
 
